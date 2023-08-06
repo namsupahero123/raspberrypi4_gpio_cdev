@@ -1,0 +1,1 @@
+cmd_/home/pi/Desktop/kernel_programing/blink_ioremap/Module.symvers :=  sed 's/ko$$/o/'  /home/pi/Desktop/kernel_programing/blink_ioremap/modules.order | scripts/mod/modpost -m -a    -o /home/pi/Desktop/kernel_programing/blink_ioremap/Module.symvers -e -i Module.symvers -T - 

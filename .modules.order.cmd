@@ -1,0 +1,1 @@
+cmd_/home/pi/Desktop/kernel_programing/blink_ioremap/modules.order := {   echo /home/pi/Desktop/kernel_programing/blink_ioremap/blink.ko; :; } > /home/pi/Desktop/kernel_programing/blink_ioremap/modules.order

@@ -1,0 +1,266 @@
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <asm/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/fs.h>
+
+
+
+#define GPIO_BASE_ADDR 0xfe200000
+#define GPFSEL0_OFFSET 0x00
+#define GPFSEL2_OFFSET 0x08
+#define GPSET0_OFFSET 0x1c
+#define GPCLR0_OFFSET 0x28
+#define GPLEV0_OFFSET 0x34
+
+#define GPIO_MODE_INPUT 0b000
+#define GPIO_MODE_OUTPUT 0b001
+
+#define DRIVER_NAME "gpio_driver"
+
+
+
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("A simple GPIO driver for Raspberry Pi");
+
+
+
+
+static uint32_t __iomem *gpio_addr;
+static dev_t dev;
+static struct cdev gpio_cdev;
+static struct device *gpio_device;
+static struct class *gpio_class;
+char data[100]="";
+
+static int dev_open(struct inode *, struct file *);
+static int dev_close(struct inode *, struct file *);
+static ssize_t dev_read(struct file *, char __user *, size_t, loff_t *);
+static ssize_t dev_write(struct file *, const char __user *, size_t, loff_t *);
+
+static const struct file_operations fops = {
+	.open = dev_open,
+	.release = dev_close,
+	.write = dev_write,
+	.read = dev_read,
+};
+
+
+
+static int GPIO_Init(uint32_t GPIO_Pin, uint16_t GPIO_Mode); 
+static int GPIO_Write_Pin(uint32_t GPIO_Pin, uint8_t logic_state);
+static uint8_t GPIO_Read_Pin(uint32_t GPIO_Pin);
+static void GPIO_Toggle_Pin(uint32_t GPIO_Pin);
+
+static int __init gpio_driver_init(void) {
+	
+	int ret;
+
+	printk(KERN_INFO "Initializing GPIO driver\n");
+
+	ret = alloc_chrdev_region(&dev, 6, 1, "gpio_example");
+	if(ret)
+	{
+		pr_info("Register major number failure\n");
+		return ret;
+	}
+
+	cdev_init(&gpio_cdev, &fops);
+	gpio_cdev.owner = THIS_MODULE;
+	gpio_cdev.dev = dev;
+
+	ret = cdev_add(&gpio_cdev, dev, 1);
+
+	if(ret < 0)
+	{
+		pr_info("cdev_add error\n");
+		return ret;
+	}
+	
+	gpio_class = class_create(THIS_MODULE, "gpio_example");
+	if(IS_ERR(gpio_class))
+	{
+		pr_info("create class failure\n");
+		return PTR_ERR(gpio_class);
+	}
+	pr_info("Create class success");
+
+	gpio_device = device_create(gpio_class, NULL, dev, NULL, "gpio_example");
+	if(IS_ERR(gpio_device))
+	{
+		pr_info("Create device failure\n");
+		return PTR_ERR(gpio_device);
+	}
+
+	pr_info("Create device success\n");
+	
+	gpio_addr =  ioremap(GPIO_BASE_ADDR, 0xf4);
+
+	if(gpio_addr == NULL)
+	{
+		printk("Remap address failure\n");
+		goto fail;
+	}
+	
+	if(GPIO_Init(26, GPIO_MODE_OUTPUT) != 0)
+	{
+		pr_info("GPIO Init failure\n");
+		goto fail;
+	}
+	if(GPIO_Write_Pin(26, 1) != 0)
+	{
+		pr_info("GPIO Write failure\n");
+		goto fail;
+	}
+	pr_info("state: %d\n", GPIO_Read_Pin(26));
+fail:
+	return 0;
+}
+
+static void __exit gpio_driver_exit(void) {
+   
+       	printk(KERN_INFO "Exiting GPIO driver\n");
+	device_destroy(gpio_class,dev);
+       	class_destroy(gpio_class);
+	cdev_del(&gpio_cdev);
+	unregister_chrdev_region(dev, 1);	
+    	iounmap(gpio_addr);
+}
+
+
+
+static int GPIO_Init(uint32_t GPIO_Pin, uint16_t GPIO_Mode)
+{
+	if(GPIO_Mode == GPIO_MODE_INPUT || GPIO_Mode == GPIO_MODE_OUTPUT)
+	{
+		gpio_addr[(GPIO_Pin/10)] |= GPIO_Mode << ((GPIO_Pin%10) * 3);	
+		return 0; /* OK */
+	}
+	else
+	{
+		return 1; /* Fail */ 
+	}
+
+}
+
+
+
+static int GPIO_Write_Pin(uint32_t GPIO_Pin, uint8_t logic_state)
+{
+	if(logic_state == 0)
+	{
+		gpio_addr[(GPCLR0_OFFSET/4) + (GPIO_Pin/32)] |= 1 << (GPIO_Pin%32);
+	}	
+	else if(logic_state == 1)
+	{
+		gpio_addr[(GPSET0_OFFSET/4) + (GPIO_Pin/32)] |= 1 << (GPIO_Pin%32);
+	}
+	else 
+	{
+		return 1; /* Fail */
+	}
+	
+	return 0; /* OK */
+}
+
+
+
+static uint8_t GPIO_Read_Pin(uint32_t GPIO_Pin)
+{
+	uint8_t logic_state;
+	logic_state = (gpio_addr[GPLEV0_OFFSET/4] >> GPIO_Pin) & 1; 
+
+	return logic_state;
+}
+
+
+
+static void GPIO_Toggle_Pin(uint32_t GPIO_Pin)
+{
+	GPIO_Write_Pin(GPIO_Pin, (1 - GPIO_Read_Pin(GPIO_Pin)));
+}
+
+
+
+static int dev_open(struct inode *inodep, struct file *filep)
+{
+	pr_info("Device file is opened\n");
+	return 0;
+}
+
+
+static int dev_close(struct inode *inodep, struct file *filep)
+{
+	pr_info("Device file is closed\n");
+	return 0;
+}
+
+
+static ssize_t dev_read(struct file *filep, char __user *buf, size_t len, loff_t *loffp)
+{
+	int ret;
+	memset(data, 0, 100);
+
+	pr_info("dev_read %d\n", GPIO_Read_Pin(26));
+	
+	
+	if(GPIO_Read_Pin(26) == 0)
+	{
+		memcpy(data, "LED is OFF",strlen("LED is OFF"));
+		ret = copy_to_user(buf, data, strlen(data));
+	}
+	else if (GPIO_Read_Pin(26) == 1)
+	{
+		memcpy(data, "LED is ON",strlen("LED is ON"));
+		ret = copy_to_user(buf, data, strlen(data));
+	}
+	pr_info("%s\n",data);
+	pr_info("state copy_to_user: %d\n", ret);
+	return 0;
+}
+
+
+static ssize_t dev_write(struct file *filep, const char __user *buf, size_t len, loff_t *loffp)
+{
+	int ret, i;
+	memset(data, 0, 100);
+
+	ret = copy_from_user(data, buf, len);
+	
+	for(i=0; i<strlen(data); i++)
+	{
+		if(data[i] == '\n' || data[i] == '\r')
+		{
+			data[i] = '\0';
+		}
+	}
+
+	if(strcmp(data, "set") == 0)
+	{
+		GPIO_Write_Pin(26, 1);
+		pr_info("dev_write %s\n", data);
+	}
+
+	else if(strcmp(data, "clear") == 0)
+	{
+		GPIO_Write_Pin(26, 0);
+		pr_info("dev_write %s\n", data);
+	}
+
+	else if(strcmp(data, "toggle") == 0)
+	{
+		GPIO_Toggle_Pin(26);
+		pr_info("dev_write %s\n", data);
+	}
+	else 
+	{
+		pr_info("Fail, string file receive is: %s\n", data);
+	}
+	return len;
+}
+
+module_init(gpio_driver_init);
+module_exit(gpio_driver_exit);

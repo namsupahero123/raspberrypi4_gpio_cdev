@@ -1,0 +1,1 @@
+cmd_/home/pi/Desktop/kernel_programing/blink_ioremap/blink.ko := ld -r -EL  -maarch64elf -z noexecstack --build-id=sha1  -T scripts/module.lds -o /home/pi/Desktop/kernel_programing/blink_ioremap/blink.ko /home/pi/Desktop/kernel_programing/blink_ioremap/blink.o /home/pi/Desktop/kernel_programing/blink_ioremap/blink.mod.o;  true

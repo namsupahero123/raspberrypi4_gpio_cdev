@@ -1,0 +1,1 @@
+cmd_/home/pi/Desktop/kernel_programing/blink_ioremap/blink.mod := printf '%s\n'   blink.o | awk '!x[$$0]++ { print("/home/pi/Desktop/kernel_programing/blink_ioremap/"$$0) }' > /home/pi/Desktop/kernel_programing/blink_ioremap/blink.mod
